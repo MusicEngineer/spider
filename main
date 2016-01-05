@@ -1,0 +1,192 @@
+#coding=utf-8
+import xlrd,xlwt
+import urllib,urllib2,xlutils
+from xlutils.copy import copy
+import re
+import tool,os
+
+class Spider:
+    def __init__(self):
+        self.siteURL ='http://shantou.baixing.com/ershoumotuoche/m5247/'
+        self.tool=tool.Tool()
+        self.pageIndex = 1
+        self.user_agent = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
+        #初始化headers
+        self.headers = { 'User-Agent' : self.user_agent }
+        #存放段子的变量，每一个元素是每一页的段子们
+        self.stories = []
+        #存放程序是否继续运行的变量
+        self.enable = False
+    #获取主页页面源码
+    def getHtml(self,pageindex):
+        try:
+            url = self.siteURL+"?page="+str(pageindex)
+            req = urllib2.Request(url =self.siteURL,headers = self.headers)
+            page = urllib2.urlopen(url)
+            html = page.read().decode("utf-8","ignore")
+            # print str("获取主页页面源码成功").decode("utf-8","ignore")
+            return html
+        except urllib2.URLError, e:
+             if hasattr(e,"reason"):
+                 print u"主页面连接失败,错误原因",e.reason
+                 self.getHtml(pageindex)
+
+      #获取主页相关信息
+    def getList(self,html):
+        pattern = u'<li data-aid=.(.{9}).*?href=.(.*?\.html).+?alt=\'(.*?)\'.*?<span class=\'figcaption\'>(.*?)图.*?<span class=\'highlight\'>(.*?)元.*?<div class=\'ad-item-detail\'>(.*?)</div>'
+        imgrecord = re.compile(pattern,flags=0)
+        html=self.tool.replace(html)
+        imglist=re.findall(imgrecord,html)
+        print u"获取主页相关信息成功"
+        return imglist
+      #获取详细页面源码
+    def getContent(self,url):
+        try:
+            page = urllib2.urlopen(url)
+            html = page.read().decode("utf-8","ignore")
+            return html
+        except urllib2.URLError, e:
+             if hasattr(e,"reason"):
+                 print u"图片页面加载失败,错误原因",e.reason
+                 self.getContent(url)
+
+    #获取详细页面相关信息
+    def getDetail(self,html):
+        #相关信息正则表达式
+        UrlsPat=u'data-bigimg=\'(http://img[4|5|6].*?\.jpg_bi)'
+        TimePat=u'<span data-toggle=\'tooltip\' title=\'.*?>(.*?)&nbsp'
+        PhonetypePat=u'<span class=\'from-mobile\'>来自：.*?&nbsp;(.*?)[</a>]'
+        Phonenum1Pat=u'class=\'contact-no\'>(.{7})'
+        Phonenum2Pat=u'<a data-contact=\'(.{4})'
+        QQPat=u'uin=(.*?)&amp'
+        DescriptionPat=u'<div class=\'viewad-text\'>(.*?)</div>'
+        CatPat=u'<label>分类：</label>.*?blank\'>(.*?)</a>'
+        BrandPat=u'<label>品牌：</label>.*?blank\'>(.*?)</a>'
+        self.time=re.findall(re.compile(TimePat,flags=0),html)
+        self.phonetype=re.findall(re.compile(PhonetypePat,flags=0),html)
+        self.phonenum1=re.findall(re.compile(Phonenum1Pat,flags=0),html)
+        self.phonenum2=re.findall(re.compile(Phonenum2Pat,flags=0),html)
+        self.phonenum=self.phonenum1+self.phonenum2
+        self.qq=re.findall(re.compile(QQPat,flags=0),html)
+        self.description=re.findall(re.compile(DescriptionPat,flags=0),html)
+        self.category=re.findall(re.compile(CatPat,flags=0),html)
+        self.brand=re.findall(re.compile(BrandPat,flags=0),html)
+        self.imgurls=re.findall(re.compile(UrlsPat,flags=0),html)
+        # print self.imgurls
+        print u"获取第",str(colnum),u"页详细信息成功"
+        return True
+    #把详细页面信息保存到excel表中
+    def DetailtoExcel(self):
+        ws1.write(colnum,0,self.id)
+        ws1.write(colnum,1,self.href)
+        ws1.write(colnum,2,self.time)
+        ws1.write(colnum,3,self.tittle)
+        ws1.write(colnum,4,self.phonetype)
+        ws1.write(colnum,5,self.phonenum)
+        ws1.write(colnum,6,self.qq)
+        ws1.write(colnum,7,self.description)
+        ws1.write(colnum,8,self.category)
+        ws1.write(colnum,9,self.brand)
+        ws1.write(colnum,10,self.picnum)
+        ws1.write(colnum,11,self.price)
+        ws1.write(colnum,12,self.area)
+        return   True
+    #把主页列表中的数据写到EXCEL表中
+    def IndextoExcel(self,pageindex):
+        #创建excel文本
+        global colnum
+        html=self.getHtml(pageindex)
+        items=self.getList(html)
+        self.picnum=0
+        self.price=self.area=""
+        for item in items:
+            self.id=item[0]
+            self.href=item[1]
+            self.tittle=item[2]
+            self.picnum=item[3]
+            self.price=item[4]
+            self.area=item[5]
+            detailhtml=self.getContent(item[1])
+            self.getDetail(detailhtml)
+            if self.imgurls<>[]:
+                self.mkdir(item[0])
+                self.saveImgs(self.imgurls)
+            self.DetailtoExcel()
+            colnum+=1
+            wb.save("test.xls")
+        return  True
+    def saveImgs(self,imgurls):
+            number = 1
+            # print u"发现",self,,u"共有",len(images),u"张照片"
+            for imageURL in imgurls:
+                splitPath = imageURL.split('.')
+                fTail = splitPath.pop()
+                if len(fTail) > 3:
+                    fTail = "jpg"
+                fileName = str(self.id) + "/" +str(number) + "." + fTail
+                self.saveImg(imageURL,fileName)
+                number += 1
+
+    def saveImg(self,imageURL,fileName):
+        try:
+             u = urllib2.urlopen(imageURL)
+             data = u.read()
+             f = open(fileName, 'wb')
+             f.write(data)
+             print u"保存",fileName,u"成功"
+             f.close()
+        except urllib2.URLError, e:
+             if hasattr(e,"reason"):
+                 print u"图片保存失败,错误原因",e.reason
+                 self.saveImg(imageURL,fileName)
+    def mkdir(self,path):
+        path = str(path)
+        # 判断路径是否存在
+        # 存在     True
+        # 不存在   False
+        isExists=os.path.exists(path)
+        # 判断结果
+        if not isExists:
+            # 如果不存在则创建目录
+            print u"新建",str(path),u'的文件夹'
+            # 创建目录操作函数
+            os.makedirs(path)
+            return True
+        else:
+            # 如果目录存在则不创建，并提示目录已存在
+            print u"名为",path,u"的文件夹已经创建成功"
+            return False
+#开始爬虫
+try:
+    oldWb = xlrd.open_workbook("test.xls")
+    print oldWb #<xlrd.book.Book object at 0x000000000315C940>
+    wb = copy(oldWb)
+    print wb #<xlwt.Workbook.Workbook object at 0x000000000315F470>
+    # ws1 = wb.sheet_by_index(0)
+    # ws2= wb.sheet_by_index(1)
+    ws1 = wb.get_sheet(0)
+    ws2 = wb.get_sheet(1)
+
+    # print ws1.nrows
+    print "write new values ok"
+    colnum = ws1.nrows
+except Exception,e:
+    print str(e)
+#     print "save with same name ok"
+# except:
+#     wb = xlwt.Workbook()
+#     ws1 = wb.add_sheet('Moto Index')
+#     ws2 = wb.add_sheet('MOTO Detail')
+a=Spider()
+
+i=1
+while i<=77:
+    a.IndextoExcel(i)
+    print u"正在保存第"+str(i)+u"页详细信息"
+    i+=1
+#     # abc=a.getDetail(html)
+# a.DetailtoExcel()
+#保存
+wb.save("test.xls")
+# print html
+print "done"
